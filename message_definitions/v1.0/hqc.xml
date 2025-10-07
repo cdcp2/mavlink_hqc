@@ -1,0 +1,134 @@
+<?xml version="1.0"?>
+<mavlink>
+  <include>common.xml</include>
+
+  <!-- ===== Enums ===== -->
+  <enums>
+    <enum name="HQC_KEX_STATUS">
+      <description>HQC key exchange (handshake) status codes</description>
+      <entry value="0" name="HQC_KEX_OK">
+        <description>Handshake completed and session keys are active</description>
+      </entry>
+      <entry value="1" name="HQC_KEX_IN_PROGRESS">
+        <description>Handshake in progress</description>
+      </entry>
+      <entry value="2" name="HQC_KEX_BAD_CRC">
+        <description>Integrity check failed (CRC or MAC error)</description>
+      </entry>
+      <entry value="3" name="HQC_KEX_BAD_LEN">
+        <description>Unexpected or invalid length</description>
+      </entry>
+      <entry value="4" name="HQC_KEX_BAD_SEQ">
+        <description>Unexpected sequence or out-of-window fragment</description>
+      </entry>
+      <entry value="5" name="HQC_KEX_TIMEOUT">
+        <description>Handshake timeout</description>
+      </entry>
+      <entry value="6" name="HQC_KEX_INTERNAL">
+        <description>Internal error (e.g. memory, KEM failure)</description>
+      </entry>
+      <entry value="7" name="HQC_KEX_ENC_UNAV">
+        <description>Crypto backend unavailable</description>
+      </entry>
+      <entry value="8" name="HQC_KEX_REJECTED">
+        <description>Handshake rejected by policy</description>
+      </entry>
+    </enum>
+
+    <enum name="HQC_CT_KIND">
+      <description>Kind of ciphertext in KEMTLS-PDK handshake</description>
+      <entry value="0" name="HQC_CT_EPHEMERAL">
+        <description>Ciphertext for ephemeral key (to pk_e)</description>
+      </entry>
+      <entry value="1" name="HQC_CT_STATIC">
+        <description>Ciphertext for static key (to pk_S)</description>
+      </entry>
+    </enum>
+  </enums>
+
+  <!-- ===== Messages ===== -->
+  <messages>
+
+    <message id="61000" name="HQC_HELLO">
+      <description>Initiate HQC handshake from GCS to FC</description>
+      <field type="uint64_t"    name="session_id">Per-session random identifier</field>
+      <field type="uint32_t"    name="pk_len">Total length in bytes of the GCS ephemeral public key</field>
+      <field type="uint8_t"     name="version">HQC-MAVLink subprotocol version</field>
+      <field type="uint8_t"     name="suite_id">1 = hqc-128, 2 = hqc-192, 3 = hqc-256</field>
+      <field type="uint8_t"     name="flags">Negotiation flags (reserved bits)</field>
+      <field type="uint8_t"     name="aead_offer">Offered AEAD algorithm ID</field>
+      <field type="uint8_t[16]" name="handshake_salt">Public randomness (salt) for this session</field>
+      <field type="uint8_t[32]" name="rc">Client random / nonce for transcript binding</field>
+    </message>
+
+    <message id="61001" name="HQC_HELLO_ACK">
+      <description>Response from FC: accept handshake and send parameters</description>
+      <field type="uint64_t" name="session_id">Session identifier echoed</field>
+      <field type="uint16_t" name="mtu">Fragment payload size (bytes)</field>
+      <field type="uint8_t"  name="window">Max in-flight fragments window</field>
+      <field type="uint8_t"  name="required_alg">AEAD algorithm required by FC</field>
+      <field type="uint8_t"  name="accept">1 = accept handshake, 0 = reject</field>
+      <field type="uint8_t"  name="status">HQC_KEX_STATUS code</field>
+      <field type="uint32_t" name="ct_e_len">Total length in bytes of ephemeral ciphertext</field>
+      <field type="uint32_t" name="ct_s_len">Total length in bytes of static ciphertext</field>
+      <field type="uint8_t[32]" name="rs">Server random / nonce for transcript binding</field>
+    </message>
+
+    <message id="61002" name="HQC_PK_CHUNK">
+      <description>Fragment of the GCS ephemeral public key (GCS → FC)</description>
+      <field type="uint64_t"  name="session_id">Session identifier</field>
+      <field type="uint32_t"  name="offset">Byte offset for this fragment</field>
+      <field type="uint16_t"  name="count">Number of bytes in this fragment</field>
+      <field type="uint8_t[220]" name="data">Slice of the public key bytes</field>
+    </message>
+
+    <message id="61007" name="HQC_PK_ACK">
+      <description>Selective ACK for HQC_PK_CHUNK fragments</description>
+      <field type="uint64_t" name="session_id">Session identifier</field>
+      <field type="uint32_t" name="base">Base byte offset acknowledged contiguously</field>
+      <field type="uint32_t" name="mask">Bitmap of next 32 fragments (1 = received)</field>
+    </message>
+
+    <message id="61003" name="HQC_CT_CHUNK">
+      <description>Fragment of a ciphertext (FC → GCS)</description>
+      <field type="uint64_t"  name="session_id">Session identifier</field>
+      <field type="uint8_t"   name="ct_kind">HQC_CT_KIND (0 = ephemeral, 1 = static)</field>
+      <field type="uint32_t"  name="offset">Byte offset within this ciphertext</field>
+      <field type="uint16_t"  name="count">Number of bytes in this fragment</field>
+      <field type="uint8_t[220]" name="data">Slice of the ciphertext bytes</field>
+    </message>
+
+    <message id="61004" name="HQC_CT_ACK">
+      <description>Selective ACK for HQC_CT_CHUNK fragments</description>
+      <field type="uint64_t" name="session_id">Session identifier</field>
+      <field type="uint8_t"  name="ct_kind">Kind of ciphertext this ACK refers to</field>
+      <field type="uint32_t" name="base">Base offset acknowledged contiguously</field>
+      <field type="uint32_t" name="mask">Bitmap for next 32 fragments (1 = received)</field>
+    </message>
+
+    <message id="61005" name="HQC_FINISH">
+      <description>Handshake FINISH containing a MAC over the transcript</description>
+      <field type="uint64_t" name="session_id">Session identifier</field>
+      <field type="uint8_t"  name="role">0 = FC (server), 1 = GCS (client)</field>
+      <field type="uint8_t"  name="tag_len">Length of the MAC tag (bytes)</field>
+      <field type="uint8_t[32]" name="tag">HMAC-SHA-256 over the handshake transcript</field>
+    </message>
+
+    <message id="61006" name="HQC_STATUS">
+      <description>Progress / status notification for the handshake</description>
+      <field type="uint64_t" name="session_id">Session identifier</field>
+      <field type="uint32_t" name="value">Optional metric (e.g. bytes received)</field>
+      <field type="uint8_t"  name="status">One of HQC_KEX_STATUS</field>
+      <field type="uint8_t"  name="detail">Implementation-specific subcode</field>
+    </message>
+
+    <message id="61008" name="HQC_ABORT">
+      <description>Abort the handshake with reason code</description>
+      <field type="uint64_t" name="session_id">Session identifier</field>
+      <field type="uint8_t"  name="status">HQC_KEX_STATUS reason code</field>
+      <field type="uint8_t"  name="detail">Detailed subcode or offset</field>
+      <field type="uint32_t" name="value">Associated value (e.g. last valid offset)</field>
+    </message>
+
+  </messages>
+</mavlink>
